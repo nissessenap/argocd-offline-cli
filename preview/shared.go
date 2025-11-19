@@ -59,6 +59,15 @@ func generateAndOutputManifests(apps []argoappv1.Application, appName string, re
 
 	for _, app := range apps {
 		if !shouldMatch(appName) || appName == app.Name {
+			// Check for multi-source Applications (not yet supported)
+			if app.Spec.Source == nil || app.Spec.Source.RepoURL == "" {
+				if len(app.Spec.Sources) > 0 {
+					log.Fatalf("Application '%s' uses multi-source format (.spec.sources[]), which is not yet supported. Please use single-source Applications (.spec.source) for now.", app.Name)
+				} else {
+					log.Fatalf("Application '%s' has no source configured (.spec.source or .spec.sources)", app.Name)
+				}
+			}
+
 			response, err := repoService.GenerateManifest(context.Background(), &repoapiclient.ManifestRequest{
 				ApplicationSource: app.Spec.Source,
 				AppName:           app.Name,

@@ -1,10 +1,7 @@
 package cmd
 
 import (
-	"os"
-
 	"github.com/spf13/cobra"
-	"github.com/touchardv/argocd-offline-cli/preview"
 )
 
 func NewCommand() *cobra.Command {
@@ -16,58 +13,7 @@ to preview the Kubernetes resource manifests being created and managed by Argo C
 	}
 
 	rootCmd.AddCommand(AppSetCommand())
+	rootCmd.AddCommand(AppCommand())
 
 	return rootCmd
-}
-
-func AppSetCommand() *cobra.Command {
-	command := &cobra.Command{
-		Use:   "appset",
-		Short: "Preview ApplicationSets",
-	}
-	command.AddCommand(PreviewApplicationsCommand())
-	command.AddCommand(PreviewApplicationResourcesCommand())
-	return command
-}
-
-func PreviewApplicationsCommand() *cobra.Command {
-	var name string
-	var output string
-	command := &cobra.Command{
-		Use:   "preview-apps APPSETMANIFEST",
-		Short: "Preview Application(s) generated from an ApplicationSet",
-		Run: func(c *cobra.Command, args []string) {
-			if len(args) == 0 {
-				c.HelpFunc()
-				os.Exit(1)
-			}
-			filename := args[0]
-			preview.PreviewApplications(filename, name, output)
-		},
-	}
-	command.Flags().StringVarP(&name, "name", "n", "", "Name of the Application to preview")
-	command.Flags().StringVarP(&output, "output", "o", "name", "Output format. One of: name|json|yaml")
-	return command
-}
-
-func PreviewApplicationResourcesCommand() *cobra.Command {
-	var kind string
-	var name string
-	var output string
-	command := &cobra.Command{
-		Use:   "preview-resources APPSETMANIFEST",
-		Short: "Preview Kubernetes resource(s) generated from an ApplicationSet/Application",
-		Run: func(c *cobra.Command, args []string) {
-			if len(args) == 0 {
-				c.HelpFunc()
-				os.Exit(1)
-			}
-			filename := args[0]
-			preview.PreviewResources(filename, name, kind, output)
-		},
-	}
-	command.Flags().StringVarP(&kind, "kind", "k", "", "Kind of resources to preview")
-	command.Flags().StringVarP(&name, "name", "n", "", "Name of the Application to preview")
-	command.Flags().StringVarP(&output, "output", "o", "name", "Output format. One of: name|json|yaml")
-	return command
 }

@@ -4,9 +4,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -309,4 +311,49 @@ func convertSSHToHTTPSForTest(sshURL string) string {
 	}
 	host := strings.TrimPrefix(parts[0], "git@")
 	return "https://" + host + "/" + parts[1]
+}
+
+// TestResolveLocalRevision tests resolving HEAD to a commit SHA
+func TestResolveLocalRevision(t *testing.T) {
+	// Get current repo path
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Skip("Not in a git repository")
+	}
+	repoPath := strings.TrimSpace(string(output))
+
+	// Test resolution
+	sha, err := resolveLocalRevision(repoPath)
+	assert.NoError(t, err)
+	assert.Len(t, sha, 40, "SHA should be 40 characters")
+	assert.Regexp(t, regexp.MustCompile("^[a-f0-9]+$"), sha, "SHA should be hex string")
+}
+
+// TestResolveLocalRevision_InvalidPath tests error handling for invalid paths
+func TestResolveLocalRevision_InvalidPath(t *testing.T) {
+	_, err := resolveLocalRevision("/nonexistent/path")
+	assert.Error(t, err)
+}
+
+// TestResolveLocalRevision_MatchesGitCommand tests that our result matches git rev-parse HEAD
+func TestResolveLocalRevision_MatchesGitCommand(t *testing.T) {
+	// Get current repo path
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Skip("Not in a git repository")
+	}
+	repoPath := strings.TrimSpace(string(output))
+
+	// Get expected SHA using git command directly
+	cmd = exec.Command("git", "-C", repoPath, "rev-parse", "HEAD")
+	expectedOutput, err := cmd.Output()
+	require.NoError(t, err)
+	expectedSHA := strings.TrimSpace(string(expectedOutput))
+
+	// Test our function
+	sha, err := resolveLocalRevision(repoPath)
+	require.NoError(t, err)
+	assert.Equal(t, expectedSHA, sha, "Resolved SHA should match git rev-parse HEAD")
 }

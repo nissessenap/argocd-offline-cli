@@ -83,6 +83,17 @@ func isLocalRepository(repoURL string) (bool, string, error) {
 	return false, "", nil
 }
 
+// resolveLocalRevision resolves a git revision to HEAD SHA for local repositories
+// This ensures ArgoCD uses the current working directory content
+func resolveLocalRevision(repoPath string) (string, error) {
+	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve HEAD in %s: %w", repoPath, err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 // shouldMatch returns true if the value is non-empty
 func shouldMatch(v string) bool {
 	return len(v) > 0
@@ -203,9 +214,25 @@ func generateSingleSourceManifest(repoService *repository.Service, app argoappv1
 
 	// Check if this is a local repository
 	var repoOverride *argoappv1.Repository
+	// Use app.Spec.Source by default, may be replaced with modified copy for local repos
+	applicationSource := app.Spec.Source
+
 	isLocal, localPath, _ := isLocalRepository(app.Spec.Source.RepoURL)
 	if isLocal {
 		log.Infof("Detected local repository for %s, using path: %s", app.Name, localPath)
+
+		// Resolve to HEAD for local repositories
+		resolvedRevision, err := resolveLocalRevision(localPath)
+		if err != nil {
+			log.Warnf("Failed to resolve local revision: %v, using original", err)
+		} else {
+			log.Debugf("Resolved targetRevision to HEAD: %s", resolvedRevision)
+			// Create a copy with resolved revision to avoid modifying original
+			sourceCopy := app.Spec.Source.DeepCopy()
+			sourceCopy.TargetRevision = resolvedRevision
+			applicationSource = sourceCopy
+		}
+
 		// localPath is from git rev-parse --show-toplevel and is therefore trusted
 		repoOverride = &argoappv1.Repository{
 			Repo: "file://" + filepath.ToSlash(localPath),
@@ -222,7 +249,7 @@ func generateSingleSourceManifest(repoService *repository.Service, app argoappv1
 	}
 
 	response, err := repoService.GenerateManifest(context.Background(), &repoapiclient.ManifestRequest{
-		ApplicationSource: app.Spec.Source,
+		ApplicationSource: applicationSource,
 		AppName:           app.Name,
 		Namespace:         app.Spec.Destination.Namespace,
 		NoCache:           true,
@@ -291,6 +318,16 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 		if isLocal && source.Chart == "" {
 			// Only use local path for Git sources, not Helm charts
 			log.Infof("Detected local repository for source %d in %s, using path: %s", i, app.Name, localPath)
+
+			// Resolve to HEAD for local repositories
+			resolvedRevision, err := resolveLocalRevision(localPath)
+			if err != nil {
+				log.Warnf("Failed to resolve local revision: %v, using original", err)
+			} else {
+				log.Debugf("Resolved targetRevision to HEAD: %s", resolvedRevision)
+				sourceCopy.TargetRevision = resolvedRevision
+			}
+
 			// localPath is from git rev-parse --show-toplevel and is therefore trusted
 			repoOverride = &argoappv1.Repository{
 				Repo: "file://" + filepath.ToSlash(localPath),

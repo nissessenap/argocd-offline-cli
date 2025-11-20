@@ -44,8 +44,8 @@ func PreviewApplications(filename string, appName string, output string) {
 		if shouldMatch(appName) {
 			for _, app := range apps {
 				if appName == app.Name {
-					app.TypeMeta.APIVersion = applicationAPIVersion
-					app.TypeMeta.Kind = applicationKind
+					app.APIVersion = applicationAPIVersion
+					app.Kind = applicationKind
 					argocmd.PrintResource(app, output)
 					break
 				}

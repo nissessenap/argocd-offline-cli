@@ -224,6 +224,8 @@ func generateSingleSourceManifest(repoService *repository.Service, app argoappv1
 		// Resolve to HEAD for local repositories
 		resolvedRevision, err := resolveLocalRevision(localPath)
 		if err != nil {
+			// Intentionally use original value when resolution fails to allow
+			// graceful fallback for edge cases
 			log.Warnf("Failed to resolve local revision: %v, using original", err)
 		} else {
 			log.Debugf("Resolved targetRevision to HEAD: %s", resolvedRevision)
@@ -276,7 +278,7 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 	// Validate same-repository constraint for Git sources
 	// Helm charts (sources with Chart field set) are allowed to have different repos
 	var baseGitRepoURL string
-	var firstGitSourceIndex int = -1
+	var firstGitSourceIndex = -1
 
 	for i, source := range sources {
 		// Validate that each source has a repoURL
@@ -304,30 +306,47 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 	// They can use different Helm chart repositories, which is a common pattern
 	// for deploying applications from multiple Helm registries.
 
-	// Build reference sources map for cross-source references
-	refSources := buildRefSources(sources)
+	// First pass: resolve all local revisions to HEAD
+	// We need to do this before building refSources so that cross-source references
+	// have the correct resolved revision
+	resolvedSources := make([]argoappv1.ApplicationSource, len(sources))
+	localPaths := make([]string, len(sources)) // Track local paths for each source
 
-	// Generate manifests for each source
-	var allManifests []string
 	for i, source := range sources {
-		sourceCopy := source // Important: create a copy for the pointer
+		resolvedSources[i] = source // Start with original
 
-		// Check if this source is a local repository
-		var repoOverride *argoappv1.Repository
 		isLocal, localPath, _ := isLocalRepository(source.RepoURL)
 		if isLocal && source.Chart == "" {
-			// Only use local path for Git sources, not Helm charts
+			// Only resolve for Git sources, not Helm charts
 			log.Infof("Detected local repository for source %d in %s, using path: %s", i, app.Name, localPath)
+			localPaths[i] = localPath
 
 			// Resolve to HEAD for local repositories
 			resolvedRevision, err := resolveLocalRevision(localPath)
 			if err != nil {
+				// Intentionally use original value when resolution fails to allow
+				// graceful fallback for edge cases
 				log.Warnf("Failed to resolve local revision: %v, using original", err)
 			} else {
 				log.Debugf("Resolved targetRevision to HEAD: %s", resolvedRevision)
-				sourceCopy.TargetRevision = resolvedRevision
+				resolvedSources[i].TargetRevision = resolvedRevision
 			}
+		}
+	}
 
+	// Build reference sources map for cross-source references
+	// This uses the resolved sources so that Ref fields point to correct revisions
+	refSources := buildRefSources(resolvedSources)
+
+	// Generate manifests for each source
+	var allManifests []string
+	for i := range sources {
+		sourceCopy := resolvedSources[i]
+		localPath := localPaths[i]
+
+		// Check if this source is a local repository
+		var repoOverride *argoappv1.Repository
+		if localPath != "" {
 			// localPath is from git rev-parse --show-toplevel and is therefore trusted
 			repoOverride = &argoappv1.Repository{
 				Repo: "file://" + filepath.ToSlash(localPath),
@@ -340,11 +359,11 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 			// - External Helm charts from different registries with their own credentials
 			// - Git sources with values + Helm charts with different authentication
 			// FindRepoUsername/FindRepoPassword is called for each source's repoURL independently.
-			log.Debugf("Using remote repository for source %d in %s: %s", i, app.Name, source.RepoURL)
+			log.Debugf("Using remote repository for source %d in %s: %s", i, app.Name, sourceCopy.RepoURL)
 			repoOverride = &argoappv1.Repository{
-				Repo:     source.RepoURL,
-				Username: FindRepoUsername(source.RepoURL),
-				Password: FindRepoPassword(source.RepoURL),
+				Repo:     sourceCopy.RepoURL,
+				Username: FindRepoUsername(sourceCopy.RepoURL),
+				Password: FindRepoPassword(sourceCopy.RepoURL),
 			}
 		}
 

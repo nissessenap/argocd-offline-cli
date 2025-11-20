@@ -151,9 +151,9 @@ func generateSingleSourceManifests(app argoappv1.Application, ...) {
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Unit tests pass: `go test ./preview/...`
+- [x] Unit tests pass: `go test ./preview/...`
 - [ ] Integration test with local repo: `./argocd-offline-cli app preview-resources test-app.yaml`
-- [ ] No compilation errors: `go build ./...`
+- [x] No compilation errors: `go build ./...`
 - [ ] Linting passes: `golangci-lint run`
 
 #### Manual Verification:
